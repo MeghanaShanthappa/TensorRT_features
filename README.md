@@ -8,6 +8,7 @@ A collection of TensorRT-LLM and LLM inference optimization demonstrations.
 |------|-------------|
 | `llm_kv_cache_offloading.py` | KV cache host offloading demo (TensorRT-LLM) |
 | `n_gram_speculative_decoding.py` | N-gram Speculative Decoding for faster generation (HuggingFace) |
+| `faster_prefill_kv_cache_across_prompts.py` | Persistent KV cache connector for cross-instance cache sharing |
 
 ---
 
@@ -110,4 +111,83 @@ Total tokens generated: 302
 |-----------|---------|-------------|
 | `draft_matching_window_size` | 3 | N-gram size for matching |
 | `draft_num_candidate_tokens` | 10 | Number of candidates to predict |
+
+---
+
+## 3. Faster Prefill using KV Cache Across Prompts
+
+`faster_prefill_kv_cache_across_prompts.py` - Demonstrates persistent KV cache sharing across LLM instances using a custom connector.
+
+### What it does
+
+This script implements a **KV Cache Connector** that saves computed KV cache blocks to disk and loads them back in subsequent runs, eliminating redundant computation for recurring prompts.
+
+### Key Concept
+
+```
+Instance 1: Process prompt → Compute KV cache → Save to disk → Destroy
+                                    ↓
+                              [disk cache]
+                                    ↓
+Instance 2: Process SAME prompt → Load from disk → Skip prefill computation!
+```
+
+### What is a KV Cache Connector?
+
+A customizable interface that allows you to:
+1. **Save KV Cache:** Persist blocks to external storage (disk, database, distributed cache)
+2. **Load KV Cache:** Retrieve previously computed blocks instead of recomputing
+3. **Share Across Instances:** Reuse cache across different LLM instances/sessions
+
+### How to Run
+
+```bash
+# Requires: tensorrt_llm, click
+pip install tensorrt_llm click
+
+# Run with any supported model
+python faster_prefill_kv_cache_across_prompts.py meta-llama/Llama-3.1-8B-Instruct
+```
+
+### Expected Output
+
+```
+[1] Creating first LLM instance...
+[2] Generating with first instance (computing KV cache)...
+    KV CONNECTOR: Matched 0 blocks for request 0
+    First output: <generated text>
+
+[3] Destroying first LLM instance...
+[4] Creating second LLM instance (new instance, same connector)...
+
+[5] Generating with second instance (should load cached blocks)...
+    KV CONNECTOR: Matched N blocks for request 0   ← Cache hit!
+    Second output: <identical text>
+
+✓ SUCCESS: Both outputs are identical!
+```
+
+### Key Benefits
+
+| Benefit | Description |
+|---------|-------------|
+| Cross-Instance Sharing | Share computed caches across multiple LLM instances |
+| Persistent Storage | Cache survives beyond the lifetime of a single instance |
+| Custom Backends | Implement any storage mechanism (disk, Redis, S3, etc.) |
+| Reduced Computation | Eliminate redundant prefill for repeated prompts |
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    KV Cache Connector                        │
+├─────────────────────────────┬───────────────────────────────┤
+│   Scheduler (Leader)        │   Worker                      │
+├─────────────────────────────┼───────────────────────────────┤
+│ • Hash token sequences      │ • Execute load/save ops       │
+│ • Check disk for cache hits │ • Copy: disk ↔ GPU memory     │
+│ • Schedule load operations  │ • Handle synchronization      │
+│ • Schedule save operations  │                               │
+└─────────────────────────────┴───────────────────────────────┘
+```
 
