@@ -9,6 +9,7 @@ A collection of TensorRT-LLM and LLM inference optimization demonstrations.
 | `llm_kv_cache_offloading.py` | KV cache host offloading demo (TensorRT-LLM) |
 | `n_gram_speculative_decoding.py` | N-gram Speculative Decoding for faster generation (HuggingFace) |
 | `faster_prefill_kv_cache_across_prompts.py` | Persistent KV cache connector for cross-instance cache sharing |
+| `kv_cache_block_priorities.py` | Control cache block retention priorities for better cache management |
 
 ---
 
@@ -190,4 +191,95 @@ python faster_prefill_kv_cache_across_prompts.py meta-llama/Llama-3.1-8B-Instruc
 │ • Schedule save operations  │                               │
 └─────────────────────────────┴───────────────────────────────┘
 ```
+
+---
+
+## 4. KV Cache Block Priorities
+
+`kv_cache_block_priorities.py` - Control which cache blocks are retained longer during eviction.
+
+### What it does
+
+When the KV cache becomes full, TensorRT-LLM must evict blocks. Block priority determines eviction order:
+
+```
+Priority Scale: 1 (lowest) ─────────────────────── 100 (highest)
+                ↓                                        ↓
+            Evicted first                      Retained longest
+
+Default Priority: 35
+```
+
+### Use Cases
+
+| Use Case | Priority | Why |
+|----------|----------|-----|
+| System prompts | 100 | Always keep cached |
+| Frequently reused prefixes | 80-100 | Better cache hit rate |
+| Normal queries | 35 (default) | Standard behavior |
+| One-off queries | 10-20 | Can be evicted first |
+
+### How to Run
+
+```bash
+python kv_cache_block_priorities.py
+```
+
+### Code Examples
+
+**Basic: High priority for system prompt tokens**
+
+```python
+from tensorrt_llm import LLM, SamplingParams
+from tensorrt_llm.llmapi import KvCacheRetentionConfig
+
+llm = LLM(model='TinyLlama/TinyLlama-1.1B-Chat-v1.0')
+
+# Set priority 100 for first 4 tokens (system prompt)
+token_range_config = KvCacheRetentionConfig.TokenRangeRetentionConfig(
+    0,      # start_token
+    4,      # end_token (exclusive)
+    100,    # priority (highest)
+    None    # duration_ms (never expires)
+)
+
+config = KvCacheRetentionConfig(
+    token_range_retention_configs=[token_range_config],
+    decode_retention_priority=35,  # Generated tokens: default priority
+)
+
+outputs = llm.generate(prompts, sampling_params, kv_cache_retention_config=config)
+```
+
+**Advanced: Per-prompt priority configuration**
+
+```python
+# Different priorities for different prompts
+configs = [
+    make_config(priority=100),  # Important user
+    make_config(priority=50),   # Normal query
+    make_config(priority=20),   # One-off, can evict
+]
+
+# List length must match prompts length
+outputs = llm.generate(prompts, sampling_params, kv_cache_retention_config=configs)
+```
+
+**Time-limited retention**
+
+```python
+config = KvCacheRetentionConfig(
+    token_range_retention_configs=[...],
+    decode_retention_priority=50,
+    decode_duration_ms=5000  # Priority drops after 5 seconds
+)
+```
+
+### Key Parameters
+
+| Parameter | Description |
+|-----------|-------------|
+| `token_range_retention_configs` | List of (start, end, priority, duration) tuples |
+| `decode_retention_priority` | Priority for generated tokens (1-100) |
+| `decode_duration_ms` | Time before decode tokens are deprioritized |
 
