@@ -7,7 +7,7 @@ A collection of TensorRT-LLM and LLM inference optimization demonstrations.
 | File | Description |
 |------|-------------|
 | `llm_kv_cache_offloading.py` | KV cache host offloading demo (TensorRT-LLM) |
-| `prompt_lookup_decoding.py` | Prompt Lookup Decoding for speculative generation (HuggingFace) |
+| `n_gram_speculative_decoding.py` | N-gram Speculative Decoding for faster generation (HuggingFace) |
 
 ---
 
@@ -52,9 +52,9 @@ This script simulates a scenario where the GPU's KV cache is severely limited, w
 
 ---
 
-## 2. Prompt Lookup Decoding (PLD)
+## 2. N-gram Speculative Decoding
 
-`prompt_lookup_decoding.py` - Demonstrates speculative decoding using n-gram matching from context.
+`n_gram_speculative_decoding.py` - Demonstrates speculative decoding using n-gram matching from context.
 
 ### What it does
 
@@ -79,7 +79,7 @@ Accept: Keep all matching tokens, reject from first mismatch
 pip install transformers torch
 
 # Run the demo (uses Mistral-7B)
-python prompt_lookup_decoding.py
+python n_gram_speculative_decoding.py
 ```
 
 ### Expected Output
